@@ -255,7 +255,7 @@ def paired_DP_paths_from_folder(folders, keys, filename_tmpl):
 
     Args:
         folders (list[str]): A list of folder path. The order of list should
-            be [input_folder, gt_folder].
+            be [inputL_folder, inputR_folder, gt_folder].
         keys (list[str]): A list of keys identifying folders. The order should
             be in consistent with folders, e.g., ['lq', 'gt'].
         filename_tmpl (str): Template for each filename. Note that the
@@ -386,3 +386,176 @@ def duf_downsample(x, kernel_size=13, scale=4):
     if squeeze_flag:
         x = x.squeeze(0)
     return x
+
+
+def triple_paths_from_folder(folders, keys, filename_tmpl):
+    """Generate triple paths from folders for HDR processing.
+
+    Args:
+        folders (list[str]): A list of folder path. The order of list should
+            be [ldr_folder, hdr_folder, dgain_info_folder].
+        keys (list[str]): A list of keys identifying folders. The order should
+            be in consistent with folders, e.g., ['ldr', 'hdr', 'dgain'].
+        filename_tmpl (str): Template for each filename. Note that the
+            template excludes the file extension. Usually the filename_tmpl is
+            for files in the ldr folder (input folder).
+
+    Returns:
+        list[dict]: Returned path list. Each item contains paths for ldr, hdr, and dgain.
+        
+    Example:
+        folders = ['/path/to/ldr', '/path/to/hdr', '/path/to/dgain']
+        keys = ['ldr', 'hdr', 'dgain']
+        filename_tmpl = '{}'
+        
+        Returns:
+        [
+            {'ldr_path': '/path/to/ldr/img001.jpg', 
+             'hdr_path': '/path/to/hdr/img001.hdr', 
+             'dgain_path': '/path/to/dgain/img001.txt'},
+            ...
+        ]
+    """
+    assert len(folders) == 3, (
+        'The len of folders should be 3 with [ldr_folder, hdr_folder, dgain_info_folder]. '
+        f'But got {len(folders)}')
+    assert len(keys) == 3, (
+        'The len of keys should be 3 with [ldr_key, hdr_key, dgain_key]. '
+        f'But got {len(keys)}')
+    
+    ldr_folder, hdr_folder, dgain_folder = folders
+    ldr_key, hdr_key, dgain_key = keys
+
+    # 获取所有文件夹中的文件列表
+    ldr_paths = list(scandir(ldr_folder))
+    hdr_paths = list(scandir(hdr_folder))
+    dgain_paths = list(scandir(dgain_folder))
+    
+    # 检查文件数量是否一致
+    assert len(ldr_paths) == len(hdr_paths) == len(dgain_paths), (
+        f'{ldr_key}, {hdr_key} and {dgain_key} datasets have different number of files: '
+        f'{len(ldr_paths)}, {len(hdr_paths)}, {len(dgain_paths)}.')
+    
+    paths = []
+    for idx in range(len(ldr_paths)):
+        # 以LDR文件作为基准文件名
+        ldr_path = ldr_paths[idx]
+        basename, ext = osp.splitext(osp.basename(ldr_path))
+        
+        # 构建对应的HDR和dgain文件路径
+        hdr_name = f'{filename_tmpl.format(basename)}'
+        dgain_name = f'{filename_tmpl.format(basename)}'
+        
+        # 在对应文件夹中查找匹配的文件
+        hdr_path = None
+        dgain_path = None
+        
+        # 查找HDR文件（可能有不同扩展名：.hdr, .exr, .tiff等）
+        for hdr_file in hdr_paths:
+            hdr_basename, hdr_ext = osp.splitext(osp.basename(hdr_file))
+            if hdr_basename == basename:
+                hdr_path = osp.join(hdr_folder, hdr_file)
+                break
+        
+        # 查找dgain文件（可能有不同扩展名：.txt, .json, .xml等）
+        for dgain_file in dgain_paths:
+            dgain_basename, dgain_ext = osp.splitext(osp.basename(dgain_file))
+            if dgain_basename == basename:
+                dgain_path = osp.join(dgain_folder, dgain_file)
+                break
+        
+        # 确保找到了所有对应的文件
+        assert hdr_path is not None, (
+            f'Cannot find corresponding HDR file for {basename} in {hdr_folder}')
+        assert dgain_path is not None, (
+            f'Cannot find corresponding dgain file for {basename} in {dgain_folder}')
+        
+        # 构建完整路径
+        ldr_full_path = osp.join(ldr_folder, ldr_path)
+        
+        paths.append(
+            dict([
+                (f'{ldr_key}_path', ldr_full_path),
+                (f'{hdr_key}_path', hdr_path),
+                (f'{dgain_key}_path', dgain_path)
+            ]))
+    
+    return paths
+
+
+def triple_paths_from_folder_flexible(folders, keys, filename_tmpl, extensions=None):
+    """Generate triple paths from folders with flexible file extension matching.
+
+    Args:
+        folders (list[str]): A list of folder path. The order of list should
+            be [ldr_folder, hdr_folder, dgain_info_folder].
+        keys (list[str]): A list of keys identifying folders. The order should
+            be in consistent with folders, e.g., ['ldr', 'hdr', 'dgain'].
+        filename_tmpl (str): Template for each filename. Note that the
+            template excludes the file extension.
+        extensions (list[list[str]], optional): Expected file extensions for each folder.
+            e.g., [['jpg', 'png'], ['hdr', 'exr'], ['txt', 'json']]
+            If None, will match any extension.
+
+    Returns:
+        list[dict]: Returned path list. Each item contains paths for ldr, hdr, and dgain.
+    """
+    assert len(folders) == 3, (
+        'The len of folders should be 3 with [ldr_folder, hdr_folder, dgain_info_folder]. '
+        f'But got {len(folders)}')
+    assert len(keys) == 3, (
+        'The len of keys should be 3 with [ldr_key, hdr_key, dgain_key]. '
+        f'But got {len(keys)}')
+    
+    if extensions is not None:
+        assert len(extensions) == 3, (
+            'The len of extensions should be 3 to match folders. '
+            f'But got {len(extensions)}')
+    
+    ldr_folder, hdr_folder, dgain_folder = folders
+    ldr_key, hdr_key, dgain_key = keys
+
+    # 获取所有文件夹中的文件列表
+    ldr_paths = list(scandir(ldr_folder))
+    hdr_paths = list(scandir(hdr_folder))
+    dgain_paths = list(scandir(dgain_folder))
+    
+    # 根据扩展名过滤文件（如果指定了extensions）
+    if extensions:
+        ldr_exts, hdr_exts, dgain_exts = extensions
+        ldr_paths = [f for f in ldr_paths if any(f.lower().endswith(f'.{ext}') for ext in ldr_exts)]
+        hdr_paths = [f for f in hdr_paths if any(f.lower().endswith(f'.{ext}') for ext in hdr_exts)]
+        dgain_paths = [f for f in dgain_paths if any(f.lower().endswith(f'.{ext}') for ext in dgain_exts)]
+    
+    # 创建文件名到路径的映射
+    def create_basename_map(file_paths, folder):
+        basename_map = {}
+        for file_path in file_paths:
+            basename = osp.splitext(osp.basename(file_path))[0]
+            basename_map[basename] = osp.join(folder, file_path)
+        return basename_map
+    
+    ldr_map = create_basename_map(ldr_paths, ldr_folder)
+    hdr_map = create_basename_map(hdr_paths, hdr_folder)
+    dgain_map = create_basename_map(dgain_paths, dgain_folder)
+    
+    # 找到所有三个文件夹都有的文件名
+    common_basenames = set(ldr_map.keys()) & set(hdr_map.keys()) & set(dgain_map.keys())
+    
+    if not common_basenames:
+        raise ValueError(
+            f'No common files found across all three folders: '
+            f'{ldr_folder}, {hdr_folder}, {dgain_folder}')
+    
+    print(f"Found {len(common_basenames)} common files across all folders")
+    
+    paths = []
+    for basename in sorted(common_basenames):
+        paths.append(
+            dict([
+                (f'{ldr_key}_path', ldr_map[basename]),
+                (f'{hdr_key}_path', hdr_map[basename]),
+                (f'{dgain_key}_path', dgain_map[basename])
+            ]))
+    
+    return paths
