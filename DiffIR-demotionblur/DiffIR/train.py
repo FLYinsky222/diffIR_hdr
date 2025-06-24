@@ -1,5 +1,8 @@
 # flake8: noqa
 import os.path as osp
+import os
+os.environ["TORCH_HOME"] = "/home/ubuntu/data_sota_disk/TORCH_HOME"
+import torch
 from DiffIR.train_pipeline import train_pipeline
 
 import DiffIR.archs
