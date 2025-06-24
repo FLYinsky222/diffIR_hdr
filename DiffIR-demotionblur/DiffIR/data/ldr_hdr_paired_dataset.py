@@ -102,14 +102,16 @@ class LDR_HDR_PairedDataset(data.Dataset):
             raise Exception("lq path {} not working".format(lq_path))
 
         dgain_path = self.paths[index]['dgain_path']
-        dgain_info = extract_info_from_dgain_prompt(dgain_path)
+        with open(dgain_path, 'r') as file:
+            prompt = file.read()
+        dgain_info = extract_info_from_dgain_prompt(prompt)
         dgain = dgain_info['dgain']
         gamma = dgain_info['gamma']
         img_gt = log_tone_mapping(img_gt, hdr_max=1000)
 
         img_lq =inverse_custom_tone_mapping(img_lq, dgain, gamma,max_value=1000)
 
-        img_lq = load_ldr_file(img_lq,hdr_max=1000)
+        img_lq = log_tone_mapping(img_lq,hdr_max=1000)
 
         # augmentation for training
         if self.opt['phase'] == 'train':

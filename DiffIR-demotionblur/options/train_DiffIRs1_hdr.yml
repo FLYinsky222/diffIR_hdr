@@ -10,9 +10,9 @@ datasets:
   train:
     name: TrainSet
     type: LDR_HDR_PairedDataset
-    dataroot_gt: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/hdr
-    dataroot_lq: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/jpg
-    dataroot_dgain: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/dgain_info
+    dataroot_gt: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/train_hdr/hdr
+    dataroot_lq: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/train_hdr/jpg
+    dataroot_dgain: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/train_hdr/dgain_info
     geometric_augs: true
 
     filename_tmpl: '{}'
@@ -21,8 +21,8 @@ datasets:
 
 
     num_worker_per_gpu: 12
-    batch_size_per_gpu: 8
-    gt_size: 512   # Max patch size for progressive training
+    batch_size_per_gpu: 4
+    gt_size: 256   # Max patch size for progressive training
 
     # data loader
     use_shuffle: true
@@ -34,8 +34,8 @@ datasets:
     name: ValSet
     type: LDR_HDR_PairedDataset
     dataroot_gt: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/val_hdr/hdr
-    dataroot_lq: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/val_jpg/jpg
-    dataroot_dgain: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/val_dgain_info/dgain_info
+    dataroot_lq: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/val_hdr/jpg
+    dataroot_dgain: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/val_hdr/dgain_info
     io_backend:
       type: disk
 
@@ -72,14 +72,15 @@ train:
 
   scheduler:
     type: CosineAnnealingWarmupRestarts
-    T_0: 100000               # 第一个周期长度
-    T_mult: 2                 # 周期倍增
-    eta_min: 1e-6             # 最小学习率
-    warmup_t: 3000            # warmup 的迭代数
-    warmup_lr_init: 1e-6      # warmup 初始学习率
+    first_cycle_steps: 50000      # 第一个周期的步数 (减小以适应HDR任务)
+    cycle_mult: 1.5               # 周期倍增因子 (每个周期增长50%)
+    max_lr: !!float 2e-4          # 最大学习率 (与optim_g的lr保持一致)
+    min_lr: !!float 1e-7          # 最小学习率 (更低的最小值)
+    warmup_steps: 2000            # warmup步数 (适中的warmup)
+    gamma: 0.8                    # 每个周期的学习率衰减因子
 
   total_iter: 300000
-  warmup_iter: 3000 
+  warmup_iter: 2000 
 
   mixing_augs:
     mixup: false

@@ -162,7 +162,7 @@ def load_hdr(file_path):
         if len(hdr_image.shape) != 3 or hdr_image.shape[2] != 3:
             raise ValueError(f"图像必须是3通道的：当前shape为{hdr_image.shape}")
             
-        print(f"图像信息：shape={hdr_image.shape}, dtype={hdr_image.dtype}")
+        #print(f"图像信息：shape={hdr_image.shape}, dtype={hdr_image.dtype}")
         return hdr_image
         
     except Exception as e:
