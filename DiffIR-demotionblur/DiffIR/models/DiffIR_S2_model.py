@@ -262,7 +262,10 @@ class DiffIRS2Model(SRModel):
 
         if current_iter < self.encoder_iter:
             self.optimizer_e.zero_grad()
-            _, pred_IPR_list = self.net_g.module.diffusion(self.lq,S1_IPR[0])
+            if self.opt['dist']:
+                _, pred_IPR_list = self.net_g.module.diffusion(self.lq,S1_IPR[0])
+            else:
+                _, pred_IPR_list = self.net_g.diffusion(self.lq,S1_IPR[0])
             i=len(pred_IPR_list)-1
             S2_IPR=[pred_IPR_list[i]]
             l_kd, l_abs = self.cri_kd(S1_IPR, S2_IPR)

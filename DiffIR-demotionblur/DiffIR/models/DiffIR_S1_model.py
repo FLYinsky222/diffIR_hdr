@@ -39,7 +39,7 @@ class Mixing_Augment:
             augment = random.randint(0, len(self.augments)-1)
             target, input_ = self.augments[augment](target, input_)
         return target, input_
-
+#@MODEL_REGISTRY.register() 是一种典型的 装饰器注册机制，常见于 DiffIR、BasicSR 等框架中，用于 自动注册模型类到某个模型字典中，便于通过字符串配置动态创建模型。
 @MODEL_REGISTRY.register()
 class DiffIRS1Model(SRModel):
     """
