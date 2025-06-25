@@ -1,0 +1,1 @@
+CUDA_VISIBLE_DEVICES=0 python DiffIR/test.py -opt options/test_DiffIRs1_hdr.yml  

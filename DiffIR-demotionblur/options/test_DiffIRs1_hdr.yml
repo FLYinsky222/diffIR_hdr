@@ -1,0 +1,66 @@
+# general settings
+name: test_DiffIRS1_hdr
+model_type: DiffIRS1Model
+scale: 1
+num_gpu: auto  # auto: can infer from your visible devices automatically. official: 4 GPUs
+manual_seed: 0
+
+
+# dataset and data loader settings
+datasets:
+  # Uncomment these for validation
+  val_1:
+    name: test_hdr_85000
+    type: LDR_HDR_PairedDataset
+    dataroot_gt: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/val_hdr/hdr
+    dataroot_lq: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/val_hdr/jpg
+    dataroot_dgain: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/val_hdr/dgain_info
+    io_backend:
+      type: disk
+
+  #val_2:
+    #name: HIDE
+    #type: DeblurPairedDataset
+    #dataroot_gt: /root/motion_deblur/test/HIDE/target
+    #dataroot_lq: /root/motion_deblur/test/HIDE/input
+    #io_backend:
+      #type: disk
+
+
+# network structures
+network_g:
+  type: DiffIRS1
+  n_encoder_res: 5
+  inp_channels: 3
+  out_channels: 3
+  dim: 48
+  num_blocks: [3,5,6,6]
+  num_refinement_blocks: 4
+  heads: [1,2,4,8]
+  ffn_expansion_factor: 2
+  bias: False
+  LayerNorm_type: WithBias
+
+# path
+path:
+  # use the pre-trained Real-ESRNet model
+  pretrain_network_g: /home/ubuntu/data_sota_disk/model_space/diffIR/net_g_85000.pth
+  param_key_g: params_ema
+  strict_load_g: True
+
+
+
+val:
+  save_img: True
+  suffix: ~  # add suffix to saved images, if None, use exp name
+
+  metrics:
+    psnr: # metric name
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: False
+    ssim: # metric name
+      type: calculate_ssim
+      crop_border: 0
+      test_y_channel: False
+

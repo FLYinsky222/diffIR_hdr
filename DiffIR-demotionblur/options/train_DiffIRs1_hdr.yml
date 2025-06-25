@@ -21,7 +21,7 @@ datasets:
 
 
     num_worker_per_gpu: 12
-    batch_size_per_gpu: 4
+    batch_size_per_gpu: 2
     gt_size: 256   # Max patch size for progressive training
 
     # data loader
