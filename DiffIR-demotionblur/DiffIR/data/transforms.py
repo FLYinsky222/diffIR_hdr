@@ -273,3 +273,95 @@ def random_augmentation(*args):
     for data in args:
         out.append(data_augmentation(data, flag_aug).copy())
     return out
+
+def padding_triple(img_gt, img_lq, img_gt_recover, gt_size):
+    """对三个图像进行padding
+    
+    Args:
+        img_gt (ndarray): GT图像
+        img_lq (ndarray): LQ图像  
+        img_gt_recover (ndarray): GT_RECOVER图像
+        gt_size (int): 目标尺寸
+        
+    Returns:
+        tuple: padding后的三个图像
+    """
+    h, w = img_lq.shape[:2]
+    pad_h = max(0, gt_size - h)
+    pad_w = max(0, gt_size - w)
+    if pad_h > 0 or pad_w > 0:
+        img_gt = cv2.copyMakeBorder(img_gt, 0, pad_h, 0, pad_w, cv2.BORDER_REFLECT_101)
+        img_lq = cv2.copyMakeBorder(img_lq, 0, pad_h, 0, pad_w, cv2.BORDER_REFLECT_101)
+        img_gt_recover = cv2.copyMakeBorder(img_gt_recover, 0, pad_h, 0, pad_w, cv2.BORDER_REFLECT_101)
+    return img_gt, img_lq, img_gt_recover
+
+def paired_random_crop_triple(img_gt, img_lq, img_gt_recover, gt_size, scale, gt_path):
+    """对三个图像进行配对的随机裁剪
+    
+    Args:
+        img_gt (ndarray): GT图像
+        img_lq (ndarray): LQ图像  
+        img_gt_recover (ndarray): GT_RECOVER图像
+        gt_size (int): GT图像的裁剪尺寸
+        scale (int): 缩放因子
+        gt_path (str): GT图像路径（用于错误信息）
+        
+    Returns:
+        tuple: 裁剪后的三个图像
+    """
+    h_lq, w_lq, _ = img_lq.shape
+    h_gt, w_gt, _ = img_gt.shape
+    h_recover, w_recover, _ = img_gt_recover.shape
+    
+    # 所有图像应该有相同的尺寸
+    assert h_lq == h_gt == h_recover and w_lq == w_gt == w_recover, \
+        f'GT and LQ and GT_RECOVER have different sizes: {(h_gt, w_gt)} vs {(h_lq, w_lq)} vs {(h_recover, w_recover)}'
+    
+    lq_size = gt_size // scale
+    if h_lq != h_gt or w_lq != w_gt:
+        raise ValueError(f'图像尺寸不匹配 {gt_path}: {(h_lq, w_lq)} vs {(h_gt, w_gt)} vs {(h_recover, w_recover)}')
+    if h_lq < lq_size or w_lq < lq_size:
+        raise ValueError(f'LQ图像尺寸太小 {gt_path}: ({h_lq}, {w_lq}) < {lq_size}')
+
+    # 随机选择裁剪起始点
+    top = random.randint(0, h_lq - lq_size)
+    left = random.randint(0, w_lq - lq_size)
+    
+    # 对所有图像应用相同的裁剪
+    img_lq = img_lq[top:top + lq_size, left:left + lq_size, ...]
+    h_gt_size, w_gt_size = int(lq_size * scale), int(lq_size * scale)
+    top_gt, left_gt = int(top * scale), int(left * scale)
+    img_gt = img_gt[top_gt:top_gt + h_gt_size, left_gt:left_gt + w_gt_size, ...]
+    img_gt_recover = img_gt_recover[top_gt:top_gt + h_gt_size, left_gt:left_gt + w_gt_size, ...]
+    
+    return img_gt, img_lq, img_gt_recover
+
+def random_augmentation_triple(img_gt, img_lq, img_gt_recover):
+    """对三个图像进行相同的随机增强
+    
+    Args:
+        img_gt (ndarray): GT图像
+        img_lq (ndarray): LQ图像  
+        img_gt_recover (ndarray): GT_RECOVER图像
+        
+    Returns:
+        tuple: 增强后的三个图像
+    """
+    hflip = random.random() < 0.5
+    vflip = random.random() < 0.5
+    rot90 = random.random() < 0.5
+
+    if hflip:
+        img_gt = cv2.flip(img_gt, 1)
+        img_lq = cv2.flip(img_lq, 1)
+        img_gt_recover = cv2.flip(img_gt_recover, 1)
+    if vflip:
+        img_gt = cv2.flip(img_gt, 0)
+        img_lq = cv2.flip(img_lq, 0)
+        img_gt_recover = cv2.flip(img_gt_recover, 0)
+    if rot90:
+        img_gt = img_gt.transpose(1, 0, 2)
+        img_lq = img_lq.transpose(1, 0, 2)
+        img_gt_recover = img_gt_recover.transpose(1, 0, 2)
+        
+    return img_gt, img_lq, img_gt_recover

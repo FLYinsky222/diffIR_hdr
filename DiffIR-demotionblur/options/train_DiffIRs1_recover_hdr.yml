@@ -1,0 +1,138 @@
+# general settings
+name: train_DiffIRS1_recover_hdr 
+model_type: DiffIRS1HDRModel
+scale: 1
+num_gpu: auto  # auto: can infer from your visible devices automatically. official: 8 GPUs
+manual_seed: 0  
+
+# dataset and data loader settings
+datasets:
+  train:
+    name: TrainSet
+    type: LDR_HDR_HDR_RECOVER_PairedDataset
+    dataroot_gt: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/train_hdr/hdr
+    dataroot_gt_recover: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/train_hdr/hdr_recover
+    dataroot_lq: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/train_hdr/jpg
+    dataroot_dgain: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/train_hdr/dgain_info
+    geometric_augs: true
+
+    filename_tmpl: '{}'
+    io_backend:
+      type: disk
+
+
+    num_worker_per_gpu: 12
+    batch_size_per_gpu: 2
+    gt_size: 256   # Max patch size for progressive training
+
+    # data loader
+    use_shuffle: true
+    dataset_enlarge_ratio: 1
+    prefetch_mode: ~
+
+  # Uncomment these for validation
+  val:
+    name: ValSet
+    type: LDR_HDR_HDR_RECOVER_PairedDataset
+    dataroot_gt: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/val_hdr/hdr
+    dataroot_gt_recover: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/val_hdr/hdr_recover
+    dataroot_lq: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/val_hdr/jpg
+    dataroot_dgain: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/val_hdr/dgain_info
+    io_backend:
+      type: disk
+
+# network structures
+network_g:
+  type: DiffIRS1
+  n_encoder_res: 5
+  inp_channels: 3
+  out_channels: 3
+  dim: 48
+  num_blocks: [3,5,6,6]
+  num_refinement_blocks: 4
+  heads: [1,2,4,8]
+  ffn_expansion_factor: 2
+  bias: False
+  LayerNorm_type: WithBias
+
+# path
+path:
+  pretrain_network_g: ~
+  param_key_g: params_ema
+  strict_load_g: true
+  resume_state: ~ 
+
+# training settings
+train:
+  ema_decay: 0.999
+
+  optim_g:
+    type: Adam
+    lr: !!float 2e-4
+    weight_decay: 0
+    betas: [0.9, 0.999]
+
+  scheduler:
+    type: CosineAnnealingWarmupRestarts
+    first_cycle_steps: 50000      # 第一个周期的步数 (减小以适应HDR任务)
+    cycle_mult: 1.5               # 周期倍增因子 (每个周期增长50%)
+    max_lr: !!float 2e-4          # 最大学习率 (与optim_g的lr保持一致)
+    min_lr: !!float 1e-7          # 最小学习率 (更低的最小值)
+    warmup_steps: 2000            # warmup步数 (适中的warmup)
+    gamma: 0.8                    # 每个周期的学习率衰减因子
+
+  total_iter: 300000
+  warmup_iter: 2000 
+
+  mixing_augs:
+    mixup: false
+    mixup_beta: 1.2
+    use_identity: true
+
+  # losses
+  pixel_opt:
+    type: L1Loss
+    loss_weight: 1.0
+    reduction: mean
+  # perceptual loss (content and style losses)
+  perceptual_opt:
+    type: PerceptualLoss
+    layer_weights:
+      # before relu
+      'conv1_2': 0.1
+      'conv2_2': 0.1
+      'conv3_4': 1
+      'conv4_4': 1
+      'conv5_4': 1
+    vgg_type: vgg19
+    use_input_norm: true
+    perceptual_weight: !!float 0.3
+    style_weight: 0
+    range_norm: false
+    criterion: l1
+
+# Uncomment these for validation
+# validation settings
+val:
+  val_freq: !!float 5e3
+  save_img: False
+
+  metrics:
+    psnr: # metric name
+      type: calculate_psnr
+      crop_border: 0
+      test_y_channel: false
+
+# logging settings
+logger:
+  print_freq: 1000
+  save_checkpoint_freq: !!float 5e3
+  use_tb_logger: true
+  wandb:
+    project: ~
+    resume_id: ~
+
+# dist training settings
+dist_params:
+  backend: nccl
+  port: 29500

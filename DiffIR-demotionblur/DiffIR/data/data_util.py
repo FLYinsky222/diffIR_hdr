@@ -559,3 +559,111 @@ def triple_paths_from_folder_flexible(folders, keys, filename_tmpl, extensions=N
             ]))
     
     return paths
+
+def quadruple_paths_from_folder(folders, keys, filename_tmpl):
+    """Generate quadruple paths from folders for HDR recovery processing.
+
+    Args:
+        folders (list[str]): A list of folder path. The order of list should
+            be [ldr_folder, hdr_folder, hdr_recover_folder, dgain_info_folder].
+        keys (list[str]): A list of keys identifying folders. The order should
+            be in consistent with folders, e.g., ['ldr', 'hdr', 'hdr_recover', 'dgain'].
+        filename_tmpl (str): Template for each filename. Note that the
+            template excludes the file extension. Usually the filename_tmpl is
+            for files in the ldr folder (input folder).
+
+    Returns:
+        list[dict]: Returned path list. Each item contains paths for ldr, hdr, hdr_recover, and dgain.
+        
+    Example:
+        folders = ['/path/to/ldr', '/path/to/hdr', '/path/to/hdr_recover', '/path/to/dgain']
+        keys = ['ldr', 'hdr', 'hdr_recover', 'dgain']
+        filename_tmpl = '{}'
+        
+        Returns:
+        [
+            {'ldr_path': '/path/to/ldr/img001.jpg', 
+             'hdr_path': '/path/to/hdr/img001.hdr',
+             'hdr_recover_path': '/path/to/hdr_recover/img001.hdr',
+             'dgain_path': '/path/to/dgain/img001.txt'},
+            ...
+        ]
+    """
+    assert len(folders) == 4, (
+        'The len of folders should be 4 with [ldr_folder, hdr_folder, hdr_recover_folder, dgain_info_folder]. '
+        f'But got {len(folders)}')
+    assert len(keys) == 4, (
+        'The len of keys should be 4 with [ldr_key, hdr_key, hdr_recover_key, dgain_key]. '
+        f'But got {len(keys)}')
+    
+    ldr_folder, hdr_folder, hdr_recover_folder, dgain_folder = folders
+    ldr_key, hdr_key, hdr_recover_key, dgain_key = keys
+
+    # 获取所有文件夹中的文件列表
+    ldr_paths = list(scandir(ldr_folder))
+    hdr_paths = list(scandir(hdr_folder))
+    hdr_recover_paths = list(scandir(hdr_recover_folder))
+    dgain_paths = list(scandir(dgain_folder))
+    
+    # 检查文件数量是否一致
+    assert len(ldr_paths) == len(hdr_paths) == len(hdr_recover_paths) == len(dgain_paths), (
+        f'{ldr_key}, {hdr_key}, {hdr_recover_key} and {dgain_key} datasets have different number of files: '
+        f'{len(ldr_paths)}, {len(hdr_paths)}, {len(hdr_recover_paths)}, {len(dgain_paths)}.')
+    
+    paths = []
+    for idx in range(len(ldr_paths)):
+        # 以LDR文件作为基准文件名
+        ldr_path = ldr_paths[idx]
+        basename, ext = osp.splitext(osp.basename(ldr_path))
+        
+        # 构建对应的HDR、HDR_recover和dgain文件路径
+        hdr_name = f'{filename_tmpl.format(basename)}'
+        hdr_recover_name = f'{filename_tmpl.format(basename)}'
+        dgain_name = f'{filename_tmpl.format(basename)}'
+        
+        # 在对应文件夹中查找匹配的文件
+        hdr_path = None
+        hdr_recover_path = None
+        dgain_path = None
+        
+        # 查找HDR文件（可能有不同扩展名：.hdr, .exr, .tiff等）
+        for hdr_file in hdr_paths:
+            hdr_basename, hdr_ext = osp.splitext(osp.basename(hdr_file))
+            if hdr_basename == basename:
+                hdr_path = osp.join(hdr_folder, hdr_file)
+                break
+        
+        # 查找HDR_recover文件（可能有不同扩展名：.hdr, .exr, .tiff等）
+        for hdr_recover_file in hdr_recover_paths:
+            hdr_recover_basename, hdr_recover_ext = osp.splitext(osp.basename(hdr_recover_file))
+            if hdr_recover_basename == basename:
+                hdr_recover_path = osp.join(hdr_recover_folder, hdr_recover_file)
+                break
+        
+        # 查找dgain文件（可能有不同扩展名：.txt, .json, .xml等）
+        for dgain_file in dgain_paths:
+            dgain_basename, dgain_ext = osp.splitext(osp.basename(dgain_file))
+            if dgain_basename == basename:
+                dgain_path = osp.join(dgain_folder, dgain_file)
+                break
+        
+        # 确保找到了所有对应的文件
+        assert hdr_path is not None, (
+            f'Cannot find corresponding HDR file for {basename} in {hdr_folder}')
+        assert hdr_recover_path is not None, (
+            f'Cannot find corresponding HDR_recover file for {basename} in {hdr_recover_folder}')
+        assert dgain_path is not None, (
+            f'Cannot find corresponding dgain file for {basename} in {dgain_folder}')
+        
+        # 构建完整路径
+        ldr_full_path = osp.join(ldr_folder, ldr_path)
+        
+        paths.append(
+            dict([
+                (f'{ldr_key}_path', ldr_full_path),
+                (f'{hdr_key}_path', hdr_path),
+                (f'{hdr_recover_key}_path', hdr_recover_path),
+                (f'{dgain_key}_path', dgain_path)
+            ]))
+    
+    return paths
