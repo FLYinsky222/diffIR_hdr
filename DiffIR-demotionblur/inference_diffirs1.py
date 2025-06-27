@@ -4,8 +4,11 @@ import glob
 import numpy as np
 import os
 import torch
-
+from DiffIR.data.common_function import load_hdr,load_ldr_file,extract_info_from_dgain_prompt,log_tone_mapping,inverse_custom_tone_mapping,inverse_log_tone_mapping
 from DiffIR.archs.S1_arch import DiffIRS1
+from metrics.metrics_calculate import calculate_psnr,calculate_ssim
+from metrics.pu21_metrics import pu21_metric
+from skimage.metrics import peak_signal_noise_ratio, structural_similarity, mean_squared_error
 
 
 def load_model_weights(model, model_path, device, use_ema=None, no_ema=False):
@@ -147,11 +150,12 @@ def main():
         '--model_path',
         type=str,
         default=  # noqa: E251
-        '/home/ubuntu/data_sota_disk/model_space/diffIR/Deblurring-DiffIRS1.pth'  # noqa: E501
+        '/home/ubuntu/data_sota_disk/model_space/diffIR/net_g_280000.pth'  # noqa: E501
     )
-    parser.add_argument('--input', type=str, default='/home/ubuntu/data_sota_disk/dataset/diffIR_dblur/test_mini/input', help='input test image folder')
-    parser.add_argument('--gt', type=str, default='/home/ubuntu/data_sota_disk/dataset/diffIR_dblur/test_mini/target', help='input test image folder')
-    parser.add_argument('--output', type=str, default='results/DiffIRS1', help='output folder')
+    parser.add_argument('--input', type=str, default='/home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/val_hdr/jpg', help='input test image folder')
+    parser.add_argument('--dgain_folder', type=str, default='/home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/val_hdr/dgain_info', help='input test image folder')
+    parser.add_argument('--gt', type=str, default='/home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/val_hdr/hdr', help='input test image folder')
+    parser.add_argument('--output', type=str, default='results/DiffIRS1_hdr_280000', help='output folder')
     parser.add_argument('--use_ema', action='store_true', help='强制使用EMA权重（如果可用）')
     parser.add_argument('--no_ema', action='store_true', help='强制使用普通权重，跳过EMA')
     args = parser.parse_args()
@@ -195,27 +199,47 @@ def main():
     print(f"Model loaded successfully and moved to {device}")
 
     os.makedirs(args.output, exist_ok=True)
+    total_psnr = 0
+    total_ssim = 0
+    total_num = 0
+    hdr_max = 1000
+    I_peak = 4000
+    total_psnr_pu21 = 0
+    total_ssim_pu21 = 0
     for idx, path in enumerate(sorted(glob.glob(os.path.join(args.input, '*')))):
         imgname = os.path.splitext(os.path.basename(path))[0]
         print(f'Testing {idx+1}: {imgname}')
         
         # read image
-        img = cv2.imread(path, cv2.IMREAD_COLOR).astype(np.float32) / 255.
+        img = load_ldr_file(path)
+        dgain_path = os.path.join(args.dgain_folder, f'{imgname}.txt')
+        with open(dgain_path, 'r') as file:
+            prompt = file.read()
+        dgain_info = extract_info_from_dgain_prompt(prompt)
+        dgain = dgain_info['dgain']
+        gamma = dgain_info['gamma']
+        
+
+        img =inverse_custom_tone_mapping(img, dgain, gamma,max_value=1000)
+
+        img = log_tone_mapping(img,hdr_max=1000)
+
         img = torch.from_numpy(np.transpose(img[:, :, [2, 1, 0]], (2, 0, 1))).float()
         img = img.unsqueeze(0).to(device)
         
-        gt_path = os.path.join(args.gt, f'{imgname}.png')
-        if not os.path.exists(gt_path):
-            # 尝试其他可能的扩展名
-            for ext in ['.jpg', '.jpeg', '.bmp', '.tiff']:
-                alt_path = os.path.join(args.gt, f'{imgname}{ext}')
-                if os.path.exists(alt_path):
-                    gt_path = alt_path
-                    break
-        
-        gt = cv2.imread(gt_path, cv2.IMREAD_COLOR).astype(np.float32) / 255.
+        gt_path = os.path.join(args.gt, f'{imgname}.hdr')
+        gt = load_hdr(gt_path)
+        linear_gt = gt.copy()
+        linear_gt_metric = linear_gt / hdr_max *I_peak
+        gt = log_tone_mapping(gt, hdr_max=1000)
+
+        gt_linear = inverse_log_tone_mapping(gt, hdr_max=1000)
+        gt_linear_metrics = gt_linear / hdr_max * I_peak
+        gt_bgr = gt.copy()
+        #gt = cv2.imread(gt_path, cv2.IMREAD_COLOR).astype(np.float32) / 255.
         gt = torch.from_numpy(np.transpose(gt[:, :, [2, 1, 0]], (2, 0, 1))).float()
         gt = gt.unsqueeze(0).to(device)
+        #gt = log_tone_mapping(gt, hdr_max=1000)
         
         # inference
         try:
@@ -228,11 +252,27 @@ def main():
             # save image
             output = output.data.squeeze().float().cpu().clamp_(0, 1).numpy()
             output = np.transpose(output[[2, 1, 0], :, :], (1, 2, 0))
+            output_linear = inverse_log_tone_mapping(output, hdr_max=1000)
+            output_linear_metrics = output_linear / hdr_max * I_peak
+            #peak_signal_noise_ratio()
+            current_psnr = calculate_psnr(output, gt_bgr)
+            current_ssim = calculate_ssim(output, gt_bgr)
+
+            psnr_pu21_recover = pu21_metric(output_linear_metrics, linear_gt_metric,metric='PSNR')
+            ssim_pu21_recover = pu21_metric(output_linear_metrics, linear_gt_metric,metric='SSIM')
             output = (output * 255.0).round().astype(np.uint8)
-            output_path = os.path.join(args.output, f'{imgname}_DiffIRS1.png')
+            output_path = os.path.join(args.output, f'{imgname}_DiffIRS1_hdr.png')
             cv2.imwrite(output_path, output)
             print(f'Saved: {output_path}')
-
+            print(f'PSNR: {current_psnr}, SSIM: {current_ssim}')
+            print(f'PSNR_PU21: {psnr_pu21_recover}, SSIM_PU21: {ssim_pu21_recover}')
+            total_psnr += current_psnr
+            total_ssim += current_ssim
+            total_psnr_pu21 += psnr_pu21_recover
+            total_ssim_pu21 += ssim_pu21_recover
+            total_num += 1
+    print(f'Total PSNR: {total_psnr/total_num}, Total SSIM: {total_ssim/total_num}')
+    print(f'Total PSNR_PU21: {total_psnr_pu21/total_num}, Total SSIM_PU21: {total_ssim_pu21/total_num}')
     print("Inference completed!")
 
 
