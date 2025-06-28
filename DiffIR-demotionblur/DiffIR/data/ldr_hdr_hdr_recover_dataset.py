@@ -6,7 +6,8 @@ from DiffIR.data.data_util import (paired_paths_from_folder,
                                     paired_paths_from_lmdb,
                                     paired_paths_from_meta_info_file,
                                     triple_paths_from_folder,
-                                    quadruple_paths_from_folder)
+                                    quadruple_paths_from_folder,
+                                    quadruple_paths_from_lmdb)
 from DiffIR.data.transforms import (augment, paired_random_crop, paired_random_crop_DP, random_augmentation,
                                     padding_triple, paired_random_crop_triple, random_augmentation_triple)
 from DiffIR.utils import FileClient, imfrombytes, img2tensor, padding, padding_DP, imfrombytesDP
@@ -14,6 +15,7 @@ from basicsr.utils.registry import DATASET_REGISTRY
 import random
 import numpy as np
 import torch
+import pickle
 import cv2
 from DiffIR.data.common_function import extract_info_from_dgain_prompt, log_tone_mapping, inverse_log_tone_mapping, load_ldr_file, load_hdr, custom_tone_mapping, inverse_custom_tone_mapping
 
@@ -72,23 +74,38 @@ class LDR_HDR_HDR_RECOVER_PairedDataset(data.Dataset):
             self.filename_tmpl = '{}'
 
         if self.io_backend_opt['type'] == 'lmdb':
-            # lmdb模式暂不支持四个数据源，保留原有逻辑
-            self.io_backend_opt['db_paths'] = [self.lq_folder, self.gt_folder]
-            self.io_backend_opt['client_keys'] = ['lq', 'gt']
-            self.paths = paired_paths_from_lmdb(
-                [self.lq_folder, self.gt_folder], ['lq', 'gt'])
+            # LMDB模式：支持四个数据源的LMDB数据库
+            self.io_backend_opt['db_paths'] = [
+                self.lq_folder, 
+                self.gt_folder, 
+                self.gt_recover_folder, 
+                self.dgain_folder
+            ]
+            self.io_backend_opt['client_keys'] = ['lq', 'gt', 'gt_recover', 'dgain']
+            
+            # 使用quadruple_paths_from_lmdb获取四个数据源的路径信息
+            self.paths = quadruple_paths_from_lmdb(
+                [self.lq_folder, self.gt_folder, self.gt_recover_folder, self.dgain_folder], 
+                ['lq', 'gt', 'gt_recover', 'dgain'])
+            
+            # 为LMDB模式标记
+            self.is_lmdb = True
+            
         elif 'meta_info_file' in self.opt and self.opt[
                 'meta_info_file'] is not None:
-            # meta_info模式暂不支持四个数据源，保留原有逻辑
+            # meta_info模式：使用元信息文件
             self.paths = paired_paths_from_meta_info_file(
                 [self.lq_folder, self.gt_folder], ['lq', 'gt'],
                 self.opt['meta_info_file'], self.filename_tmpl)
+            self.is_lmdb = False
+            
         else:
-            # 使用新的quadruple_paths_from_folder处理四个数据源
+            # folder模式：使用新的quadruple_paths_from_folder处理四个数据源
             self.paths = quadruple_paths_from_folder(
                 [self.lq_folder, self.gt_folder, self.gt_recover_folder, self.dgain_folder], 
                 ['lq', 'gt', 'gt_recover', 'dgain'],
                 self.filename_tmpl)
+            self.is_lmdb = False
 
         if self.opt['phase'] == 'train':
             self.geometric_augs = opt['geometric_augs']
@@ -101,35 +118,68 @@ class LDR_HDR_HDR_RECOVER_PairedDataset(data.Dataset):
         scale = self.opt['scale']
         index = index % len(self.paths)
         
-        # 加载GT HDR图像
-        gt_path = self.paths[index]['gt_path']
-        try:
-            img_gt = load_hdr(gt_path)
-        except:
-            raise Exception("gt path {} not working".format(gt_path))
+        if self.is_lmdb:
+            # LMDB模式的数据加载
+            lq_path = self.paths[index]['lq_path']
+            gt_path = self.paths[index]['gt_path']
+            gt_recover_path = self.paths[index]['gt_recover_path']
+            dgain_path = self.paths[index]['dgain_path']
+            
+            # 从LMDB中读取数据
+            # LQ图像：使用标准图像编码存储，用imfrombytes读取
+            img_bytes = self.file_client.get(lq_path, 'lq')
+            img_lq = imfrombytes(img_bytes, float32=True)
+            
+            # HDR图像：使用pickle序列化存储，用pickle.loads读取
+            img_bytes = self.file_client.get(gt_path, 'gt')
+            img_gt = pickle.loads(img_bytes)
+            
+            # HDR_RECOVER图像：使用pickle序列化存储，用pickle.loads读取
+            img_bytes = self.file_client.get(gt_recover_path, 'gt_recover')
+            img_gt_recover = pickle.loads(img_bytes)
+            
+            # 读取dgain信息（以文本形式存储在LMDB中）
+            dgain_bytes = self.file_client.get(dgain_path, 'dgain')
+            dgain_info = pickle.loads(dgain_bytes)
 
-        # 加载LQ LDR图像
-        lq_path = self.paths[index]['lq_path']
-        try:
-            img_lq = load_ldr_file(lq_path)
-        except:
-            raise Exception("lq path {} not working".format(lq_path))
+            dgain = dgain_info['dgain']
+            gamma = dgain_info['gamma']
+            
+            # 设置路径信息用于错误报告
+            gt_recover_path = f"lmdb:{gt_recover_path}"
+            
+        else:
+            # Disk模式的数据加载
+            # 加载GT HDR图像
+            gt_path = self.paths[index]['gt_path']
+            try:
+                img_gt = load_hdr(gt_path)
+            except:
+                raise Exception("gt path {} not working".format(gt_path))
 
-        # 加载GT_RECOVER HDR图像（由其他网络生成）
-        gt_recover_path = self.paths[index]['gt_recover_path']
-        try:
-            img_gt_recover = load_hdr(gt_recover_path)
-        except:
-            raise Exception("gt_recover path {} not working".format(gt_recover_path))
+            # 加载LQ LDR图像
+            lq_path = self.paths[index]['lq_path']
+            try:
+                img_lq = load_ldr_file(lq_path)
+            except:
+                raise Exception("lq path {} not working".format(lq_path))
 
-        # 加载dgain信息
-        dgain_path = self.paths[index]['dgain_path']
-        with open(dgain_path, 'r') as file:
-            prompt = file.read()
-        dgain_info = extract_info_from_dgain_prompt(prompt)
-        dgain = dgain_info['dgain']
-        gamma = dgain_info['gamma']
+            # 加载GT_RECOVER HDR图像（由其他网络生成）
+            gt_recover_path = self.paths[index]['gt_recover_path']
+            try:
+                img_gt_recover = np.load(gt_recover_path)
+            except:
+                raise Exception("gt_recover path {} not working".format(gt_recover_path))
+
+            # 加载dgain信息
+            dgain_path = self.paths[index]['dgain_path']
+            with open(dgain_path, 'r') as file:
+                prompt = file.read()
+            dgain_info = extract_info_from_dgain_prompt(prompt)
+            dgain = dgain_info['dgain']
+            gamma = dgain_info['gamma']
         
+        # 统一的图像处理流程（不论是LMDB还是disk模式）
         # 对GT图像进行log tone mapping
         img_gt = log_tone_mapping(img_gt, hdr_max=1000)
 
@@ -138,7 +188,7 @@ class LDR_HDR_HDR_RECOVER_PairedDataset(data.Dataset):
         img_lq = log_tone_mapping(img_lq, hdr_max=1000)
 
         # 对GT_RECOVER图像进行log tone mapping（假设它已经是HDR格式）
-        img_gt_recover = log_tone_mapping(img_gt_recover, hdr_max=1000)
+        img_gt_recover = img_gt_recover / 1000.0
 
         # 训练时的数据增强
         if self.opt['phase'] == 'train':
@@ -184,7 +234,7 @@ class LDR_HDR_HDR_RECOVER_PairedDataset(data.Dataset):
 配置文件示例：
 要使用LDR_HDR_HDR_RECOVER_PairedDataset，在配置文件中需要设置以下参数：
 
-# train.yml 配置示例
+# Disk模式配置示例
 datasets:
   train:
     name: TrainDataset
@@ -200,14 +250,35 @@ datasets:
     geometric_augs: true
     scale: 1
     phase: train
+
+# LMDB模式配置示例
+datasets:
+  train:
+    name: TrainDataset
+    type: LDR_HDR_HDR_RECOVER_PairedDataset
+    dataroot_lq: /path/to/ldr_images.lmdb     # LDR图像LMDB数据库
+    dataroot_gt: /path/to/hdr_gt.lmdb         # 真实HDR图像LMDB数据库
+    dataroot_gt_recover: /path/to/hdr_recover.lmdb  # 恢复HDR图像LMDB数据库
+    dataroot_dgain: /path/to/dgain_info.lmdb  # dgain信息LMDB数据库
+    filename_tmpl: '{}'
+    io_backend:
+      type: lmdb
+      db_paths: [lq_path, gt_path, gt_recover_path, dgain_path]  # 会自动设置
+      client_keys: [lq, gt, gt_recover, dgain]                  # 会自动设置
+    gt_size: 512
+    geometric_augs: true
+    scale: 1
+    phase: train
     
 注意事项：
-1. 四个数据文件夹中的文件必须按相同的基础文件名对应
-2. 数据集返回三个图像：
+1. Disk模式：四个数据文件夹中的文件必须按相同的基础文件名对应
+2. LMDB模式：四个LMDB数据库中的键必须对应，dgain信息以UTF-8文本格式存储
+3. 数据集返回三个图像：
    - lq: LDR输入图像
    - gt_recover: 其他网络恢复的HDR图像  
    - gt: 真实HDR图像（用于计算loss）
-3. 网络的输入是lq和gt_recover，输出与gt比较计算loss
+4. 网络的输入是lq和gt_recover，输出与gt比较计算loss
+5. LMDB模式通常具有更快的I/O性能，特别适合大规模训练
 """
 
 

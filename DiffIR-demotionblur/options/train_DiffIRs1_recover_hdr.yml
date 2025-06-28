@@ -10,16 +10,23 @@ datasets:
   train:
     name: TrainSet
     type: LDR_HDR_HDR_RECOVER_PairedDataset
-    dataroot_gt: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/train_hdr/hdr
-    dataroot_gt_recover: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/train_hdr/hdr_recover
-    dataroot_lq: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/train_hdr/jpg
-    dataroot_dgain: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/train_hdr/dgain_info
+    # Disk模式配置
+    #dataroot_gt: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/train_hdr/hdr
+    #dataroot_gt_recover: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/train_hdr/hdr_recover
+    #dataroot_lq: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/train_hdr/jpg
+    #dataroot_dgain: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/train_hdr/dgain_info
+    
+    # LMDB模式配置（注释掉的示例）
+    dataroot_gt: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/merged_data/hdr_train_0_200_hdr.lmdb
+    dataroot_gt_recover: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/merged_data/hdr_train_0_200_hdr_recover.lmdb  
+    dataroot_lq: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/merged_data/hdr_train_0_200_lq.lmdb
+    dataroot_dgain: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/merged_data/hdr_train_0_200_dgain.lmdb
+    
     geometric_augs: true
 
     filename_tmpl: '{}'
     io_backend:
-      type: disk
-
+      type: lmdb  # 可选: disk 或 lmdb
 
     num_worker_per_gpu: 12
     batch_size_per_gpu: 2
@@ -34,12 +41,20 @@ datasets:
   val:
     name: ValSet
     type: LDR_HDR_HDR_RECOVER_PairedDataset
+    # Disk模式配置
     dataroot_gt: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/val_hdr/hdr
     dataroot_gt_recover: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/val_hdr/hdr_recover
     dataroot_lq: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/val_hdr/jpg
     dataroot_dgain: /home/ubuntu/data_sota_disk/dataset/inverse_tone/AIM_ITM_TRAIN/val_hdr/dgain_info
+    
+    # LMDB模式配置（注释掉的示例）
+    # dataroot_gt: /path/to/val_hdr_gt.lmdb
+    # dataroot_gt_recover: /path/to/val_hdr_recover.lmdb
+    # dataroot_lq: /path/to/val_ldr_images.lmdb  
+    # dataroot_dgain: /path/to/val_dgain_info.lmdb
+    
     io_backend:
-      type: disk
+      type: disk  # 可选: disk 或 lmdb
 
 # network structures
 network_g:

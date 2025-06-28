@@ -5,13 +5,15 @@ from DiffIR.data.data_util import (paired_paths_from_folder,
                                     paired_DP_paths_from_folder,
                                     paired_paths_from_lmdb,
                                     paired_paths_from_meta_info_file,
-                                    triple_paths_from_folder)
+                                    triple_paths_from_folder,
+                                    triple_paths_from_lmdb)
 from DiffIR.data.transforms import augment, paired_random_crop, paired_random_crop_DP, random_augmentation
 from DiffIR.utils import FileClient, imfrombytes, img2tensor, padding, padding_DP, imfrombytesDP
 from basicsr.utils.registry import DATASET_REGISTRY
 import random
 import numpy as np
 import torch
+import pickle
 import cv2
 from DiffIR.data.common_function import extract_info_from_dgain_prompt, log_tone_mapping, inverse_log_tone_mapping, load_ldr_file, load_hdr, custom_tone_mapping, inverse_custom_tone_mapping
 
@@ -61,19 +63,36 @@ class LDR_HDR_PairedDataset(data.Dataset):
             self.filename_tmpl = '{}'
 
         if self.io_backend_opt['type'] == 'lmdb':
-            self.io_backend_opt['db_paths'] = [self.lq_folder, self.gt_folder]
-            self.io_backend_opt['client_keys'] = ['lq', 'gt']
-            self.paths = paired_paths_from_lmdb(
-                [self.lq_folder, self.gt_folder], ['lq', 'gt'])
+            # LMDB模式：支持三个数据源的LMDB数据库
+            self.io_backend_opt['db_paths'] = [
+                self.lq_folder, 
+                self.gt_folder, 
+                self.dgain_folder
+            ]
+            self.io_backend_opt['client_keys'] = ['lq', 'gt', 'dgain']
+            
+            # 使用triple_paths_from_lmdb获取三个数据源的路径信息
+            self.paths = triple_paths_from_lmdb(
+                [self.lq_folder, self.gt_folder, self.dgain_folder], 
+                ['lq', 'gt', 'dgain'])
+            
+            # 为LMDB模式标记
+            self.is_lmdb = True
+            
         elif 'meta_info_file' in self.opt and self.opt[
                 'meta_info_file'] is not None:
+            # meta_info模式：使用元信息文件
             self.paths = paired_paths_from_meta_info_file(
                 [self.lq_folder, self.gt_folder], ['lq', 'gt'],
                 self.opt['meta_info_file'], self.filename_tmpl)
+            self.is_lmdb = False
+            
         else:
+            # folder模式：使用triple_paths_from_folder处理三个数据源
             self.paths = triple_paths_from_folder(
                 [self.lq_folder, self.gt_folder, self.dgain_folder], ['lq', 'gt', 'dgain'],
                 self.filename_tmpl)
+            self.is_lmdb = False
 
         if self.opt['phase'] == 'train':
             self.geometric_augs = opt['geometric_augs']
@@ -85,33 +104,60 @@ class LDR_HDR_PairedDataset(data.Dataset):
 
         scale = self.opt['scale']
         index = index % len(self.paths)
-        # Load gt and lq images. Dimension order: HWC; channel order: BGR;
-        # image range: [0, 1], float32.
-        gt_path = self.paths[index]['gt_path']
+        
+        if self.is_lmdb:
+            # LMDB模式的数据加载
+            lq_path = self.paths[index]['lq_path']
+            gt_path = self.paths[index]['gt_path']
+            dgain_path = self.paths[index]['dgain_path']
+            
+            # 从LMDB中读取数据
+            # LQ图像：使用标准图像编码存储，用imfrombytes读取
+            img_bytes = self.file_client.get(lq_path, 'lq')
+            img_lq = imfrombytes(img_bytes, float32=True)
+            
+            # HDR图像：使用pickle序列化存储，用pickle.loads读取
+            img_bytes = self.file_client.get(gt_path, 'gt')
+            img_gt = pickle.loads(img_bytes)
+            
+            # 读取dgain信息（以文本形式存储在LMDB中）
+            dgain_bytes = self.file_client.get(dgain_path, 'dgain')
+            dgain_info = pickle.loads(dgain_bytes)
 
-        try:
-            img_gt = load_hdr(gt_path)
-        except:
-            raise Exception("gt path {} not working".format(gt_path))
+            dgain = dgain_info['dgain']
+            gamma = dgain_info['gamma']
+            
+        else:
+            # Disk模式的数据加载
+            # Load gt and lq images. Dimension order: HWC; channel order: BGR;
+            # image range: [0, 1], float32.
+            gt_path = self.paths[index]['gt_path']
 
-        lq_path = self.paths[index]['lq_path']
+            try:
+                img_gt = load_hdr(gt_path)
+            except:
+                raise Exception("gt path {} not working".format(gt_path))
 
-        try:
-            img_lq = load_ldr_file(lq_path)
-        except:
-            raise Exception("lq path {} not working".format(lq_path))
+            lq_path = self.paths[index]['lq_path']
 
-        dgain_path = self.paths[index]['dgain_path']
-        with open(dgain_path, 'r') as file:
-            prompt = file.read()
-        dgain_info = extract_info_from_dgain_prompt(prompt)
-        dgain = dgain_info['dgain']
-        gamma = dgain_info['gamma']
+            try:
+                img_lq = load_ldr_file(lq_path)
+            except:
+                raise Exception("lq path {} not working".format(lq_path))
+
+            dgain_path = self.paths[index]['dgain_path']
+            with open(dgain_path, 'r') as file:
+                prompt = file.read()
+            dgain_info = extract_info_from_dgain_prompt(prompt)
+            dgain = dgain_info['dgain']
+            gamma = dgain_info['gamma']
+        
+        # 统一的图像处理流程（不论是LMDB还是disk模式）
         img_gt = log_tone_mapping(img_gt, hdr_max=1000)
 
-        img_lq =inverse_custom_tone_mapping(img_lq, dgain, gamma,max_value=1000)
+        img_lq = inverse_custom_tone_mapping(img_lq, dgain, gamma, max_value=1000)
 
-        img_lq = log_tone_mapping(img_lq,hdr_max=1000)
+        img_lq = log_tone_mapping(img_lq, hdr_max=1000)
 
         # augmentation for training
         if self.opt['phase'] == 'train':

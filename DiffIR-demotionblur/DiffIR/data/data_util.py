@@ -667,3 +667,153 @@ def quadruple_paths_from_folder(folders, keys, filename_tmpl):
             ]))
     
     return paths
+
+def triple_paths_from_lmdb(folders, keys):
+    """Generate triple paths from lmdb files.
+
+    Contents of lmdb. Taking the `lq.lmdb` for example, the file structure is:
+
+    lq.lmdb
+    ├── data.mdb
+    ├── lock.mdb
+    ├── meta_info.txt
+
+    The data.mdb and lock.mdb are standard lmdb files and you can refer to
+    https://lmdb.readthedocs.io/en/release/ for more details.
+
+    The meta_info.txt is a specified txt file to record the meta information
+    of our datasets. It will be automatically created when preparing
+    datasets by our provided dataset tools.
+    Each line in the txt file records
+    1)image name (with extension),
+    2)image shape,
+    3)compression level, separated by a white space.
+    Example: `baboon.png (120,125,3) 1`
+
+    We use the image name without extension as the lmdb key.
+    Note that we use the same key for the corresponding lq, gt and dgain data.
+
+    Args:
+        folders (list[str]): A list of folder path. The order of list should
+            be [lq_folder, gt_folder, dgain_folder].
+        keys (list[str]): A list of keys identifying folders. The order should
+            be in consistent with folders, e.g., ['lq', 'gt', 'dgain'].
+            Note that this key is different from lmdb keys.
+
+    Returns:
+        list[str]: Returned path list.
+    """
+    assert len(folders) == 3, (
+        'The len of folders should be 3 with [lq_folder, gt_folder, dgain_folder]. '
+        f'But got {len(folders)}')
+    assert len(keys) == 3, (
+        'The len of keys should be 3 with [lq_key, gt_key, dgain_key]. '
+        f'But got {len(keys)}')
+    lq_folder, gt_folder, dgain_folder = folders
+    lq_key, gt_key, dgain_key = keys
+
+    # 检查所有文件夹都是LMDB格式
+    for folder, key in zip(folders, keys):
+        if not folder.endswith('.lmdb'):
+            raise ValueError(
+                f'{key} folder should be in lmdb format. '
+                f'But received {key}: {folder}')
+    
+    # 读取所有LMDB的meta_info文件并确保键一致
+    all_lmdb_keys = {}
+    for folder, key in zip(folders, keys):
+        with open(osp.join(folder, 'meta_info.txt')) as fin:
+            lmdb_keys = [line.split('.')[0] for line in fin]
+            all_lmdb_keys[key] = set(lmdb_keys)
+    
+    # 确保所有LMDB数据库中的键都相同
+    reference_keys = all_lmdb_keys[lq_key]
+    for key, key_set in all_lmdb_keys.items():
+        if key_set != reference_keys:
+            raise ValueError(
+                f'Keys in {lq_key}_folder and {key}_folder are different.')
+    
+    # 生成路径列表
+    paths = []
+    for lmdb_key in sorted(reference_keys):
+        path_dict = {}
+        for key in keys:
+            path_dict[f'{key}_path'] = lmdb_key
+        paths.append(path_dict)
+    
+    return paths
+
+def quadruple_paths_from_lmdb(folders, keys):
+    """Generate quadruple paths from lmdb files.
+
+    Contents of lmdb. Taking the `lq.lmdb` for example, the file structure is:
+
+    lq.lmdb
+    ├── data.mdb
+    ├── lock.mdb
+    ├── meta_info.txt
+
+    The data.mdb and lock.mdb are standard lmdb files and you can refer to
+    https://lmdb.readthedocs.io/en/release/ for more details.
+
+    The meta_info.txt is a specified txt file to record the meta information
+    of our datasets. It will be automatically created when preparing
+    datasets by our provided dataset tools.
+    Each line in the txt file records
+    1)image name (with extension),
+    2)image shape,
+    3)compression level, separated by a white space.
+    Example: `baboon.png (120,125,3) 1`
+
+    We use the image name without extension as the lmdb key.
+    Note that we use the same key for the corresponding lq, gt, gt_recover and dgain data.
+
+    Args:
+        folders (list[str]): A list of folder path. The order of list should
+            be [lq_folder, gt_folder, gt_recover_folder, dgain_folder].
+        keys (list[str]): A list of keys identifying folders. The order should
+            be in consistent with folders, e.g., ['lq', 'gt', 'gt_recover', 'dgain'].
+            Note that this key is different from lmdb keys.
+
+    Returns:
+        list[str]: Returned path list.
+    """
+    assert len(folders) == 4, (
+        'The len of folders should be 4 with [lq_folder, gt_folder, gt_recover_folder, dgain_folder]. '
+        f'But got {len(folders)}')
+    assert len(keys) == 4, (
+        'The len of keys should be 4 with [lq_key, gt_key, gt_recover_key, dgain_key]. '
+        f'But got {len(keys)}')
+    lq_folder, gt_folder, gt_recover_folder, dgain_folder = folders
+    lq_key, gt_key, gt_recover_key, dgain_key = keys
+
+    # 检查所有文件夹都是LMDB格式
+    for folder, key in zip(folders, keys):
+        if not folder.endswith('.lmdb'):
+            raise ValueError(
+                f'{key} folder should be in lmdb format. '
+                f'But received {key}: {folder}')
+    
+    # 读取所有LMDB的meta_info文件并确保键一致
+    all_lmdb_keys = {}
+    for folder, key in zip(folders, keys):
+        with open(osp.join(folder, 'meta_info.txt')) as fin:
+            lmdb_keys = [line.split('.')[0] for line in fin]
+            all_lmdb_keys[key] = set(lmdb_keys)
+    
+    # 确保所有LMDB数据库中的键都相同
+    reference_keys = all_lmdb_keys[lq_key]
+    for key, key_set in all_lmdb_keys.items():
+        if key_set != reference_keys:
+            raise ValueError(
+                f'Keys in {lq_key}_folder and {key}_folder are different.')
+    
+    # 生成路径列表
+    paths = []
+    for lmdb_key in sorted(reference_keys):
+        path_dict = {}
+        for key in keys:
+            path_dict[f'{key}_path'] = lmdb_key
+        paths.append(path_dict)
+    
+    return paths
