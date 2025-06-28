@@ -168,6 +168,7 @@ class LDR_HDR_HDR_RECOVER_PairedDataset(data.Dataset):
             gt_recover_path = self.paths[index]['gt_recover_path']
             try:
                 img_gt_recover = np.load(gt_recover_path)
+                img_gt_recover = img_gt_recover.squeeze()
             except:
                 raise Exception("gt_recover path {} not working".format(gt_recover_path))
 
@@ -189,6 +190,7 @@ class LDR_HDR_HDR_RECOVER_PairedDataset(data.Dataset):
 
         # 对GT_RECOVER图像进行log tone mapping（假设它已经是HDR格式）
         img_gt_recover = img_gt_recover / 1000.0
+        img_gt_recover = cv2.cvtColor(img_gt_recover, cv2.COLOR_RGB2BGR)
 
         # 训练时的数据增强
         if self.opt['phase'] == 'train':
